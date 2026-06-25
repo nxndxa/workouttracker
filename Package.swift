@@ -3,20 +3,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "FitGlass",
+    name: "Aether",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
         .executable(
-            name: "FitGlass",
-            targets: ["FitGlass"]
+            name: "Aether",
+            targets: ["Aether"]
         ),
     ],
     targets: [
         .executableTarget(
-            name: "FitGlass"
+            name: "Aether"
         ),
     ]
 )

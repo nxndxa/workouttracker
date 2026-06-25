@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FitGlassApp: App {
+struct AetherApp: App {
     @State private var store = WorkoutStore()
 
     var body: some Scene {

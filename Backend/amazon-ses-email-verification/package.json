@@ -1,0 +1,9 @@
+{
+  "name": "aether-ses-email-verification",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-sesv2": "^3.0.0"
+  }
+}
