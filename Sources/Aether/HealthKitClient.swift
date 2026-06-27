@@ -45,7 +45,7 @@ final class HealthKitClient {
         try await store.requestAuthorization(toShare: shareTypes, read: readTypes)
     }
 
-    func fetchRecentMetrics(days: Int) async throws -> HealthMetricsSnapshot {
+    func fetchCurrentWeekMetrics() async throws -> HealthMetricsSnapshot {
         guard isHealthDataAvailable else { throw HealthKitClientError.unavailable }
 
         guard
@@ -57,7 +57,8 @@ final class HealthKitClient {
             throw HealthKitClientError.missingType
         }
 
-        let startDate = Calendar.current.date(byAdding: .day, value: -days, to: .now) ?? .now
+        let calendar = Calendar.current
+        let startDate = calendar.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
         let endDate = Date()
 
         async let energyValue = cumulativeQuantity(
@@ -169,7 +170,7 @@ final class HealthKitClient {
         throw HealthKitClientError.unavailable
     }
 
-    func fetchRecentMetrics(days: Int) async throws -> HealthMetricsSnapshot {
+    func fetchCurrentWeekMetrics() async throws -> HealthMetricsSnapshot {
         throw HealthKitClientError.unavailable
     }
 }

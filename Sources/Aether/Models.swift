@@ -143,6 +143,51 @@ enum AuthProvider: String, Codable {
     case email = "Email"
 }
 
+enum GenderIdentity: String, CaseIterable, Codable, Identifiable {
+    case he = "He"
+    case she = "She"
+    case other = "Other"
+
+    var id: String { rawValue }
+}
+
+enum AccessTier: String, Codable {
+    case free = "Free"
+    case pro = "Pro"
+}
+
+enum ProPlanOption: String, CaseIterable, Codable, Identifiable {
+    case trial = "7-Day Free Trial"
+    case monthly = "Monthly"
+    case yearly = "Yearly"
+
+    var id: String { rawValue }
+
+    var headline: String {
+        switch self {
+        case .trial: "Try Pro free for 7 days"
+        case .monthly: "$5 per month"
+        case .yearly: "$50 per year"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .trial: "Then continue on the yearly plan unless canceled."
+        case .monthly: "Flexible monthly access."
+        case .yearly: "Best value for the full year."
+        }
+    }
+
+    var ctaTitle: String {
+        switch self {
+        case .trial: "Start 7-Day Free Trial"
+        case .monthly: "Choose Monthly"
+        case .yearly: "Choose Yearly"
+        }
+    }
+}
+
 struct EmailVerificationSession: Codable, Hashable {
     var email: String
     var expiresAt: Date?
@@ -211,6 +256,75 @@ struct ProgressTrendPoint: Identifiable, Hashable {
     }
 }
 
+struct ScoreBreakdownItem: Identifiable, Hashable {
+    let id = UUID()
+    let title: String
+    let value: Int
+    let maxValue: Int
+
+    var progress: Double {
+        guard maxValue > 0 else { return 0 }
+        return min(Double(value) / Double(maxValue), 1)
+    }
+}
+
+enum TrainingExperience: String, CaseIterable, Codable, Identifiable {
+    case beginner = "Beginner"
+    case intermediate = "Intermediate"
+    case advanced = "Advanced"
+
+    var id: String { rawValue }
+
+    var description: String {
+        switch self {
+        case .beginner: "Building the habit"
+        case .intermediate: "Training with structure"
+        case .advanced: "Chasing performance"
+        }
+    }
+}
+
+enum OnboardingChallenge: String, CaseIterable, Codable, Identifiable {
+    case consistency = "Consistency"
+    case motivation = "Motivation"
+    case strengthPlateau = "Strength Plateau"
+    case lowCardio = "Low Cardio"
+    case bodyComposition = "Body Composition"
+    case time = "Time"
+
+    var id: String { rawValue }
+
+    var summary: String {
+        switch self {
+        case .consistency: "A schedule that is easier to stick with."
+        case .motivation: "More visible momentum and quick wins."
+        case .strengthPlateau: "Better structure and progressive overload."
+        case .lowCardio: "A stronger aerobic base and recovery."
+        case .bodyComposition: "More weekly output and better habits."
+        case .time: "Shorter, focused sessions."
+        }
+    }
+}
+
+struct OnboardingQuizProfile: Codable, Equatable {
+    var experience: TrainingExperience = .beginner
+    var trainingDaysPerWeek: Int = 3
+    var biggestChallenge: OnboardingChallenge = .consistency
+    var targetDate: Date = Calendar.current.date(byAdding: .day, value: 56, to: .now) ?? .now
+    var genderIdentity: GenderIdentity = .other
+    var dateOfBirth: Date = Calendar.current.date(from: DateComponents(year: 2000, month: 1, day: 1)) ?? .now
+}
+
+struct WorkoutPlanRecommendation: Hashable {
+    var title: String
+    var subtitle: String
+    var insight: String
+    var scoreTarget: Int
+    var targetWorkoutMinutes: Int
+    var recommendedDays: [WorkoutDay]
+    var templates: [WorkoutTemplate]
+}
+
 enum WorkoutDay: String, CaseIterable, Codable, Hashable, Identifiable {
     case sunday = "Sunday"
     case monday = "Monday"
@@ -277,37 +391,26 @@ struct ExerciseOption: Identifiable, Hashable {
 struct WorkoutTrackingDraft: Equatable {
     var kind: WorkoutKind = .strength
     var day: WorkoutDay = .today
-    var muscleGroups: [MuscleGroup] = [.chest]
-    var exercise: ExerciseOption = ExerciseOption.all[0]
     var workoutName: String = ""
-    var splitName: String = "Push"
-    var weightPounds: Int = 135
-    var reps: Int = 8
-    var distanceKilometers: Double = 5
-    var notes: String = ""
+    var splitName: String = ""
+    var exercises: [WorkoutExercise] = []
 
     init(
         kind: WorkoutKind = .strength,
         day: WorkoutDay = .today,
-        muscleGroups: [MuscleGroup] = [.chest],
-        exercise: ExerciseOption = ExerciseOption.all[0],
         workoutName: String = "",
-        splitName: String = "Push",
-        weightPounds: Int = 135,
-        reps: Int = 8,
-        distanceKilometers: Double = 5,
-        notes: String = ""
+        splitName: String = "",
+        exercises: [WorkoutExercise] = []
     ) {
         self.kind = kind
         self.day = day
-        self.muscleGroups = muscleGroups
-        self.exercise = exercise
         self.workoutName = workoutName
         self.splitName = splitName
-        self.weightPounds = weightPounds
-        self.reps = reps
-        self.distanceKilometers = distanceKilometers
-        self.notes = notes
+        self.exercises = exercises
+    }
+
+    var filledExercises: [WorkoutExercise] {
+        exercises.filter { $0.isFilled(for: kind) }
     }
 
     var title: String {
@@ -316,24 +419,141 @@ struct WorkoutTrackingDraft: Equatable {
     }
 
     var isSubmittable: Bool {
-        !workoutName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !muscleGroups.isEmpty
+        !workoutName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !filledExercises.isEmpty
     }
 
     var summaryNotes: String {
-        let muscles = muscleGroups.map(\.rawValue).joined(separator: ", ")
-        let performance = kind.tracksDistance
-            ? "\(distanceKilometers.formatted(.number.precision(.fractionLength(1)))) km"
-            : "\(weightPounds) lb x \(reps) reps"
-        let base = "\(day.rawValue) • \(muscles) • \(splitName) • \(title) • \(performance)"
-        return notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? base : "\(base)\n\(notes)"
+        let base = splitName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "\(day.rawValue) • \(title)"
+            : "\(day.rawValue) • \(splitName) • \(title)"
+        let exerciseLines = filledExercises.map { "- \($0.name) • \($0.summary(for: kind))" }.joined(separator: "\n")
+        return "\(base)\n\(exerciseLines)"
     }
 
-    mutating func toggleMuscleGroup(_ group: MuscleGroup) {
-        if muscleGroups.contains(group) {
-            muscleGroups.removeAll { $0 == group }
+    var totalDistanceKilometers: Double {
+        filledExercises.reduce(0) { $0 + $1.distanceKilometers }
+    }
+
+    var primaryWeightPounds: Int? {
+        filledExercises.compactMap(\.primaryWeightPounds).max()
+    }
+
+    var primaryReps: Int? {
+        filledExercises.first?.primaryReps
+    }
+
+    mutating func appendExercise(_ exercise: WorkoutExercise) {
+        guard exercise.isFilled(for: kind) else { return }
+        exercises.append(exercise)
+    }
+
+    mutating func removeExercise(id: UUID) {
+        exercises.removeAll { $0.id == id }
+    }
+}
+
+struct WorkoutSet: Identifiable, Codable, Hashable {
+    var id: UUID
+    var reps: Int
+    var weightPounds: Int
+
+    init(
+        id: UUID = UUID(),
+        reps: Int = 8,
+        weightPounds: Int = 45
+    ) {
+        self.id = id
+        self.reps = reps
+        self.weightPounds = weightPounds
+    }
+
+    var volumeLoad: Int {
+        reps * weightPounds
+    }
+
+    var summaryText: String {
+        "\(reps) reps • \(weightPounds) lb"
+    }
+}
+
+struct WorkoutExercise: Identifiable, Codable, Hashable {
+    var id: UUID
+    var name: String
+    var sets: Int
+    var weightPounds: Int
+    var reps: Int
+    var distanceKilometers: Double
+    var notes: String
+    var loggedSets: [WorkoutSet]
+
+    init(
+        id: UUID = UUID(),
+        name: String = "",
+        sets: Int = 3,
+        weightPounds: Int = 135,
+        reps: Int = 8,
+        distanceKilometers: Double = 5,
+        notes: String = "",
+        loggedSets: [WorkoutSet] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.sets = sets
+        self.weightPounds = weightPounds
+        self.reps = reps
+        self.distanceKilometers = distanceKilometers
+        self.notes = notes
+        if loggedSets.isEmpty && distanceKilometers == 0 && reps > 0 {
+            self.loggedSets = (0..<max(sets, 1)).map { _ in
+                WorkoutSet(reps: reps, weightPounds: weightPounds)
+            }
         } else {
-            muscleGroups.append(group)
+            self.loggedSets = loggedSets
         }
+    }
+
+    var activeSets: [WorkoutSet] {
+        if !loggedSets.isEmpty {
+            return loggedSets
+        }
+
+        guard reps > 0 else { return [] }
+        return (0..<max(sets, 1)).map { _ in
+            WorkoutSet(reps: reps, weightPounds: weightPounds)
+        }
+    }
+
+    func isFilled(for kind: WorkoutKind) -> Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (kind.tracksDistance ? distanceKilometers > 0 : activeSets.contains { $0.reps > 0 })
+    }
+
+    func summary(for kind: WorkoutKind) -> String {
+        if kind.tracksDistance {
+            return "\(distanceKilometers.formatted(.number.precision(.fractionLength(1)))) km"
+        }
+
+        let sets = activeSets
+        let totalReps = sets.reduce(0) { $0 + $1.reps }
+        let topWeight = sets.map(\.weightPounds).max() ?? 0
+        return "\(sets.count) set\(sets.count == 1 ? "" : "s") • \(totalReps) reps • \(topWeight) lb top"
+    }
+
+    var volumeLoad: Int {
+        if !activeSets.isEmpty {
+            return activeSets.reduce(0) { $0 + $1.volumeLoad }
+        }
+
+        return sets * reps * weightPounds
+    }
+
+    var primaryWeightPounds: Int? {
+        activeSets.map(\.weightPounds).max()
+    }
+
+    var primaryReps: Int? {
+        activeSets.first?.reps
     }
 }
 
@@ -344,9 +564,25 @@ struct WorkoutTemplate: Identifiable, Codable, Hashable {
     var muscleGroups: [MuscleGroup]
     var workoutName: String
     var splitName: String
-    var weightPounds: Int
-    var reps: Int
-    var distanceKilometers: Double
+    var exercises: [WorkoutExercise]
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        kind: WorkoutKind,
+        muscleGroups: [MuscleGroup],
+        workoutName: String,
+        splitName: String,
+        exercises: [WorkoutExercise]
+    ) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.muscleGroups = muscleGroups
+        self.workoutName = workoutName
+        self.splitName = splitName
+        self.exercises = exercises
+    }
 
     init(
         id: UUID = UUID(),
@@ -359,27 +595,33 @@ struct WorkoutTemplate: Identifiable, Codable, Hashable {
         reps: Int,
         distanceKilometers: Double
     ) {
-        self.id = id
-        self.name = name
-        self.kind = kind
-        self.muscleGroups = muscleGroups
-        self.workoutName = workoutName
-        self.splitName = splitName
-        self.weightPounds = weightPounds
-        self.reps = reps
-        self.distanceKilometers = distanceKilometers
+        self.init(
+            id: id,
+            name: name,
+            kind: kind,
+            muscleGroups: muscleGroups,
+            workoutName: workoutName,
+            splitName: splitName,
+            exercises: [
+                WorkoutExercise(
+                    name: workoutName,
+                    sets: kind.tracksDistance ? 1 : 3,
+                    weightPounds: weightPounds,
+                    reps: reps,
+                    distanceKilometers: distanceKilometers
+                )
+            ]
+        )
     }
 
     init(draft: WorkoutTrackingDraft) {
         self.init(
             name: draft.splitName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? draft.title : draft.splitName,
             kind: draft.kind,
-            muscleGroups: draft.muscleGroups,
+            muscleGroups: [],
             workoutName: draft.title,
             splitName: draft.splitName,
-            weightPounds: draft.weightPounds,
-            reps: draft.reps,
-            distanceKilometers: draft.distanceKilometers
+            exercises: draft.filledExercises
         )
     }
 
@@ -387,13 +629,18 @@ struct WorkoutTemplate: Identifiable, Codable, Hashable {
         WorkoutTrackingDraft(
             kind: kind,
             day: day,
-            muscleGroups: muscleGroups,
             workoutName: workoutName,
             splitName: splitName,
-            weightPounds: weightPounds,
-            reps: reps,
-            distanceKilometers: distanceKilometers
+            exercises: exercises
         )
+    }
+
+    var previewExercises: [WorkoutExercise] {
+        Array(exercises.prefix(4))
+    }
+
+    var exerciseCount: Int {
+        exercises.count
     }
 
     static let defaults: [WorkoutTemplate] = [
@@ -403,19 +650,63 @@ struct WorkoutTemplate: Identifiable, Codable, Hashable {
             muscleGroups: [.chest, .shoulders, .triceps],
             workoutName: "Push Day",
             splitName: "Push",
-            weightPounds: 135,
-            reps: 8,
-            distanceKilometers: 0
+            exercises: [
+                WorkoutExercise(name: "Bench Press", sets: 3, weightPounds: 135, reps: 8, distanceKilometers: 0),
+                WorkoutExercise(name: "Incline Press", sets: 3, weightPounds: 115, reps: 10, distanceKilometers: 0),
+                WorkoutExercise(name: "Cable Fly", sets: 2, weightPounds: 40, reps: 12, distanceKilometers: 0),
+                WorkoutExercise(name: "Overhead Tricep Extension", sets: 3, weightPounds: 45, reps: 10, distanceKilometers: 0)
+            ]
         ),
         WorkoutTemplate(
-            name: "5K Run",
+            name: "Pull Day",
+            kind: .strength,
+            muscleGroups: [.back, .biceps],
+            workoutName: "Pull Day",
+            splitName: "Pull",
+            exercises: [
+                WorkoutExercise(name: "Lat Pulldown", sets: 3, weightPounds: 120, reps: 10, distanceKilometers: 0),
+                WorkoutExercise(name: "Chest Supported Row", sets: 3, weightPounds: 90, reps: 10, distanceKilometers: 0),
+                WorkoutExercise(name: "Seated Cable Row", sets: 2, weightPounds: 105, reps: 12, distanceKilometers: 0),
+                WorkoutExercise(name: "EZ Bar Curl", sets: 3, weightPounds: 55, reps: 10, distanceKilometers: 0)
+            ]
+        ),
+        WorkoutTemplate(
+            name: "Leg Day",
+            kind: .strength,
+            muscleGroups: [.legs, .core],
+            workoutName: "Leg Day",
+            splitName: "Legs",
+            exercises: [
+                WorkoutExercise(name: "Hack Squat", sets: 3, weightPounds: 185, reps: 6, distanceKilometers: 0),
+                WorkoutExercise(name: "Romanian Deadlift", sets: 3, weightPounds: 155, reps: 8, distanceKilometers: 0),
+                WorkoutExercise(name: "Leg Extension", sets: 2, weightPounds: 100, reps: 12, distanceKilometers: 0),
+                WorkoutExercise(name: "Calf Raise", sets: 3, weightPounds: 160, reps: 12, distanceKilometers: 0)
+            ]
+        ),
+        WorkoutTemplate(
+            name: "Upper Heavy",
+            kind: .strength,
+            muscleGroups: [.chest, .back, .shoulders, .biceps, .triceps],
+            workoutName: "Upper Heavy",
+            splitName: "Upper",
+            exercises: [
+                WorkoutExercise(name: "Incline Press", sets: 2, weightPounds: 145, reps: 6, distanceKilometers: 0),
+                WorkoutExercise(name: "T-Bar Row", sets: 2, weightPounds: 135, reps: 8, distanceKilometers: 0),
+                WorkoutExercise(name: "Cable Lateral Raise", sets: 2, weightPounds: 20, reps: 15, distanceKilometers: 0),
+                WorkoutExercise(name: "Preacher Curl", sets: 2, weightPounds: 55, reps: 8, distanceKilometers: 0)
+            ]
+        ),
+        WorkoutTemplate(
+            name: "5K Run Session",
             kind: .run,
             muscleGroups: [.wholeBody],
-            workoutName: "5K Run",
+            workoutName: "5K Run Session",
             splitName: "Run",
-            weightPounds: 0,
-            reps: 1,
-            distanceKilometers: 5
+            exercises: [
+                WorkoutExercise(name: "Warm Up Jog", sets: 1, weightPounds: 0, reps: 1, distanceKilometers: 1.0),
+                WorkoutExercise(name: "Main Run", sets: 1, weightPounds: 0, reps: 1, distanceKilometers: 5.0),
+                WorkoutExercise(name: "Cool Down Walk", sets: 1, weightPounds: 0, reps: 1, distanceKilometers: 0.8)
+            ]
         )
     ]
 }
@@ -434,6 +725,7 @@ struct WorkoutEntry: Identifiable, Codable, Hashable {
     var notes: String
     var muscleGroups: [MuscleGroup]
     var splitName: String
+    var exercises: [WorkoutExercise]
     var weightPounds: Int?
     var reps: Int?
 
@@ -451,6 +743,7 @@ struct WorkoutEntry: Identifiable, Codable, Hashable {
         case notes
         case muscleGroups
         case splitName
+        case exercises
         case weightPounds
         case reps
     }
@@ -469,6 +762,7 @@ struct WorkoutEntry: Identifiable, Codable, Hashable {
         notes: String,
         muscleGroups: [MuscleGroup] = [],
         splitName: String = "",
+        exercises: [WorkoutExercise] = [],
         weightPounds: Int? = nil,
         reps: Int? = nil
     ) {
@@ -485,6 +779,7 @@ struct WorkoutEntry: Identifiable, Codable, Hashable {
         self.notes = notes
         self.muscleGroups = muscleGroups
         self.splitName = splitName
+        self.exercises = exercises
         self.weightPounds = weightPounds
         self.reps = reps
     }
@@ -504,8 +799,19 @@ struct WorkoutEntry: Identifiable, Codable, Hashable {
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         muscleGroups = try container.decodeIfPresent([MuscleGroup].self, forKey: .muscleGroups) ?? []
         splitName = try container.decodeIfPresent(String.self, forKey: .splitName) ?? ""
+        exercises = try container.decodeIfPresent([WorkoutExercise].self, forKey: .exercises) ?? []
         weightPounds = try container.decodeIfPresent(Int.self, forKey: .weightPounds)
         reps = try container.decodeIfPresent(Int.self, forKey: .reps)
+
+        if exercises.isEmpty, let fallbackExercise = WorkoutEntry.makeFallbackExercise(
+            title: title,
+            kind: kind,
+            weightPounds: weightPounds,
+            reps: reps,
+            distanceKilometers: distanceKilometers
+        ) {
+            exercises = [fallbackExercise]
+        }
     }
 
     var endDate: Date {
@@ -539,6 +845,38 @@ struct WorkoutEntry: Identifiable, Codable, Hashable {
     }
 
     var volumeLoad: Int {
-        (weightPounds ?? 0) * (reps ?? 0)
+        if !exercises.isEmpty {
+            return exercises.reduce(0) { $0 + $1.volumeLoad }
+        }
+
+        return (weightPounds ?? 0) * (reps ?? 0)
+    }
+
+    private static func makeFallbackExercise(
+        title: String,
+        kind: WorkoutKind,
+        weightPounds: Int?,
+        reps: Int?,
+        distanceKilometers: Double?
+    ) -> WorkoutExercise? {
+        if kind.tracksDistance {
+            guard let distanceKilometers, distanceKilometers > 0 else { return nil }
+            return WorkoutExercise(
+                name: title,
+                sets: 1,
+                weightPounds: 0,
+                reps: 1,
+                distanceKilometers: distanceKilometers
+            )
+        }
+
+        guard let reps, reps > 0 else { return nil }
+        return WorkoutExercise(
+            name: title,
+            sets: 1,
+            weightPounds: weightPounds ?? 0,
+            reps: reps,
+            distanceKilometers: 0
+        )
     }
 }

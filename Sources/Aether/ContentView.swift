@@ -30,6 +30,61 @@ private enum MainTab: Hashable {
     case progress
 }
 
+private struct OnboardingHeaderBar: View {
+    @Bindable var store: WorkoutStore
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack {
+                if store.canMoveBackInOnboarding {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.24)) {
+                            store.goBackInOnboarding()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(AetherTheme.text)
+                            .frame(width: 36, height: 36)
+                            .background(AetherTheme.elevated, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear
+                        .frame(width: 36, height: 36)
+                }
+
+                Spacer()
+
+                if let stepIndex = store.onboardingStepIndex {
+                    Text("Step \(stepIndex) of \(store.onboardingStepCount)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AetherTheme.mutedText)
+                }
+
+                Spacer()
+
+                Color.clear
+                    .frame(width: 36, height: 36)
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(AetherTheme.elevated)
+
+                    Capsule()
+                        .fill(AetherTheme.red)
+                        .frame(width: max(14, proxy.size.width * store.onboardingProgress))
+                }
+            }
+            .frame(height: 6)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+    }
+}
+
 struct ContentView: View {
     @Bindable var store: WorkoutStore
 
@@ -37,8 +92,16 @@ struct ContentView: View {
         Group {
             if store.needsWelcome {
                 WelcomeView(store: store)
+            } else if store.isDirectSignInFlow {
+                LoginView(store: store)
             } else if store.needsGoalSelection {
                 GoalSelectionView(store: store)
+            } else if store.needsOnboardingQuiz {
+                OnboardingQuizView(store: store)
+            } else if store.needsPlanPreview {
+                PlanPreviewView(store: store)
+            } else if store.needsPaywall {
+                PaywallView(store: store)
             } else if store.needsAuthentication {
                 LoginView(store: store)
             } else if store.needsHealthPrompt {
@@ -90,12 +153,6 @@ private struct WelcomeView: View {
                             .foregroundStyle(AetherTheme.text)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.74)
-
-                        Text("Your training history, goals, and weekly progress in one place.")
-                            .font(.body)
-                            .foregroundStyle(AetherTheme.mutedText)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 330)
                     }
                     .opacity(isAnimated ? 1 : 0)
                     .offset(y: isAnimated ? 0 : 12)
@@ -115,6 +172,24 @@ private struct WelcomeView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(AetherTheme.red)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.32)) {
+                        store.startDirectSignIn()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Already have an account?")
+                            .foregroundStyle(AetherTheme.mutedText)
+                        Text("Sign In")
+                            .fontWeight(.bold)
+                            .foregroundStyle(AetherTheme.text)
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                }
+                .buttonStyle(.plain)
                 .padding(.bottom, 18)
             }
             .padding(24)
@@ -133,53 +208,621 @@ private struct GoalSelectionView: View {
         ZStack {
             AetherTheme.background.ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("What are your goals?")
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundStyle(AetherTheme.text)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.78)
-                            .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 0) {
+                OnboardingHeaderBar(store: store)
 
-                        Text("Pick what you want Aether to help you track.")
-                            .font(.body)
-                            .foregroundStyle(AetherTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.top, 32)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("What are your goals?")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .foregroundStyle(AetherTheme.text)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.78)
+                                .fixedSize(horizontal: false, vertical: true)
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                        ForEach(FitnessGoal.allCases) { goal in
-                            GoalOptionButton(
-                                goal: goal,
-                                isSelected: draftGoals.contains(goal)
-                            ) {
-                                if draftGoals.contains(goal) {
-                                    draftGoals.remove(goal)
-                                } else {
-                                    draftGoals.insert(goal)
+                            Text("Pick what you want Aether to help you track.")
+                                .font(.body)
+                                .foregroundStyle(AetherTheme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 24)
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                            ForEach(FitnessGoal.allCases) { goal in
+                                GoalOptionButton(
+                                    goal: goal,
+                                    isSelected: draftGoals.contains(goal)
+                                ) {
+                                    if draftGoals.contains(goal) {
+                                        draftGoals.remove(goal)
+                                    } else {
+                                        draftGoals.insert(goal)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Button {
-                        store.selectedGoals = FitnessGoal.allCases.filter { draftGoals.contains($0) }
-                    } label: {
-                        Text("Continue")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
+                        Button {
+                            store.selectedGoals = FitnessGoal.allCases.filter { draftGoals.contains($0) }
+                        } label: {
+                            Text("Continue")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AetherTheme.red)
+                        .disabled(draftGoals.isEmpty)
+                        .padding(.top, 8)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AetherTheme.red)
-                    .disabled(draftGoals.isEmpty)
-                    .padding(.top, 8)
+                    .padding(24)
                 }
-                .padding(24)
             }
+        }
+        .onAppear {
+            draftGoals = Set(store.selectedGoals)
+        }
+    }
+}
+
+private struct OnboardingQuizView: View {
+    @Bindable var store: WorkoutStore
+    @State private var profile = OnboardingQuizProfile()
+    @State private var showsCustomDatePicker = false
+
+    var body: some View {
+        ZStack {
+            AetherTheme.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                OnboardingHeaderBar(store: store)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Build your plan")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .foregroundStyle(AetherTheme.text)
+
+                            Text("A few quick answers help Aether shape your score target, training rhythm, and starter sessions.")
+                                .font(.body)
+                                .foregroundStyle(AetherTheme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 24)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Selected Goals")
+                                .font(.headline)
+                                .foregroundStyle(AetherTheme.text)
+
+                            FlowTagLayout(items: store.selectedGoals.map(\.rawValue))
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("How do you identify?")
+                                .font(.headline)
+                                .foregroundStyle(AetherTheme.text)
+
+                            HStack(spacing: 10) {
+                                ForEach(GenderIdentity.allCases) { identity in
+                                    Button {
+                                        profile.genderIdentity = identity
+                                    } label: {
+                                        Text(identity.rawValue)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(profile.genderIdentity == identity ? AetherTheme.text : AetherTheme.mutedText)
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: 42)
+                                            .background(profile.genderIdentity == identity ? AetherTheme.redMuted : AetherTheme.elevated, in: Capsule())
+                                            .overlay {
+                                                Capsule()
+                                                    .stroke(profile.genderIdentity == identity ? AetherTheme.red : AetherTheme.border, lineWidth: 1)
+                                            }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("Birthday")
+                                    .font(.headline)
+                                    .foregroundStyle(AetherTheme.text)
+                                Spacer()
+                                Text(profile.dateOfBirth.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AetherTheme.mutedText)
+                            }
+
+                            DatePicker(
+                                "Birthday",
+                                selection: $profile.dateOfBirth,
+                                in: ...Date(),
+                                displayedComponents: .date
+                            )
+                            #if os(iOS)
+                            .datePickerStyle(.wheel)
+                            #else
+                            .datePickerStyle(.graphical)
+                            #endif
+                            .labelsHidden()
+                            .tint(AetherTheme.red)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Training Experience")
+                                .font(.headline)
+                                .foregroundStyle(AetherTheme.text)
+
+                            VStack(spacing: 10) {
+                                ForEach(TrainingExperience.allCases) { experience in
+                                    TrainingExperienceCard(
+                                        experience: experience,
+                                        isSelected: profile.experience == experience
+                                    ) {
+                                        profile.experience = experience
+                                    }
+                                }
+                            }
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("Planned Days Per Week")
+                                    .font(.headline)
+                                    .foregroundStyle(AetherTheme.text)
+                                Spacer()
+                                Text("\(profile.trainingDaysPerWeek)")
+                                    .font(.headline)
+                                    .foregroundStyle(AetherTheme.red)
+                            }
+
+                            HStack(spacing: 8) {
+                                ForEach(2...6, id: \.self) { dayCount in
+                                    Button {
+                                        profile.trainingDaysPerWeek = dayCount
+                                    } label: {
+                                        Text("\(dayCount)")
+                                            .font(.headline.weight(.bold))
+                                            .foregroundStyle(profile.trainingDaysPerWeek == dayCount ? AetherTheme.text : AetherTheme.mutedText)
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: 44)
+                                            .background(profile.trainingDaysPerWeek == dayCount ? AetherTheme.redMuted : AetherTheme.elevated, in: Capsule())
+                                            .overlay {
+                                                Capsule().stroke(profile.trainingDaysPerWeek == dayCount ? AetherTheme.red : AetherTheme.border, lineWidth: 1)
+                                            }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Biggest Challenge")
+                                .font(.headline)
+                                .foregroundStyle(AetherTheme.text)
+
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 10)], spacing: 10) {
+                                ForEach(OnboardingChallenge.allCases) { challenge in
+                                    Button {
+                                        profile.biggestChallenge = challenge
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 10) {
+                                            Text(challenge.rawValue)
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundStyle(AetherTheme.text)
+                                                .lineLimit(2)
+
+                                            Text(challenge.summary)
+                                                .font(.caption)
+                                                .foregroundStyle(AetherTheme.mutedText)
+                                                .multilineTextAlignment(.leading)
+                                                .lineLimit(3)
+                                        }
+                                        .padding(14)
+                                        .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+                                        .background(profile.biggestChallenge == challenge ? AetherTheme.redMuted : AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(profile.biggestChallenge == challenge ? AetherTheme.red : AetherTheme.border, lineWidth: 1)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("Target Date")
+                                    .font(.headline)
+                                    .foregroundStyle(AetherTheme.text)
+                                Spacer()
+                                Text(profile.targetDate.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AetherTheme.mutedText)
+                            }
+
+                            HStack(spacing: 8) {
+                                targetDateChip(title: "4 Weeks", days: 28)
+                                targetDateChip(title: "8 Weeks", days: 56)
+                                targetDateChip(title: "12 Weeks", days: 84)
+                            }
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.24)) {
+                                    showsCustomDatePicker.toggle()
+                                }
+                            } label: {
+                                Label(showsCustomDatePicker ? "Hide Custom Date" : "Choose Custom Date", systemImage: "calendar")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(AetherTheme.text)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 44)
+                                    .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+
+                            if showsCustomDatePicker {
+                                DatePicker(
+                                    "Target Date",
+                                    selection: $profile.targetDate,
+                                    in: Date()...,
+                                    displayedComponents: .date
+                                )
+                                .datePickerStyle(.graphical)
+                                .labelsHidden()
+                                .tint(AetherTheme.red)
+                                .colorScheme(.dark)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }
+                        .profilePanel()
+
+                        Button {
+                            store.completeOnboardingQuiz(profile)
+                        } label: {
+                            Text("Build My Plan")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AetherTheme.red)
+                    }
+                    .padding(24)
+                }
+            }
+        }
+        .onAppear {
+            if let existingProfile = store.onboardingQuizProfile {
+                profile = existingProfile
+            } else {
+                profile.genderIdentity = store.genderIdentity
+                profile.dateOfBirth = store.dateOfBirth
+            }
+            showsCustomDatePicker = !matchesPresetDayCount(28) && !matchesPresetDayCount(56) && !matchesPresetDayCount(84)
+        }
+    }
+
+    @ViewBuilder
+    private func targetDateChip(title: String, days: Int) -> some View {
+        Button {
+            profile.targetDate = Calendar.current.date(byAdding: .day, value: days, to: .now) ?? .now
+            withAnimation(.easeInOut(duration: 0.24)) {
+                showsCustomDatePicker = false
+            }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(matchesPresetDayCount(days) ? AetherTheme.text : AetherTheme.mutedText)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(matchesPresetDayCount(days) ? AetherTheme.redMuted : AetherTheme.elevated, in: Capsule())
+                .overlay {
+                    Capsule().stroke(matchesPresetDayCount(days) ? AetherTheme.red : AetherTheme.border, lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func matchesPresetDayCount(_ days: Int) -> Bool {
+        let difference = Calendar.current.dateComponents(
+            [.day],
+            from: Calendar.current.startOfDay(for: .now),
+            to: Calendar.current.startOfDay(for: profile.targetDate)
+        ).day ?? 0
+        return abs(difference - days) <= 1
+    }
+}
+
+private struct TrainingExperienceCard: View {
+    let experience: TrainingExperience
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(experience.rawValue)
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.text)
+                    Text(experience.description)
+                        .font(.subheadline)
+                        .foregroundStyle(AetherTheme.mutedText)
+                }
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? AetherTheme.red : AetherTheme.mutedText)
+            }
+            .padding(14)
+            .background(isSelected ? AetherTheme.redMuted : AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? AetherTheme.red : AetherTheme.border, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PlanPreviewView: View {
+    @Bindable var store: WorkoutStore
+
+    private var plan: WorkoutPlanRecommendation? {
+        store.generatedPlan
+    }
+
+    var body: some View {
+        ZStack {
+            AetherTheme.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                OnboardingHeaderBar(store: store)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Your Aether result")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .foregroundStyle(AetherTheme.text)
+
+                            Text(store.reportHeadline)
+                                .font(.body)
+                                .foregroundStyle(AetherTheme.mutedText)
+                        }
+                        .padding(.top, 24)
+
+                        if let plan {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text(plan.title)
+                                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AetherTheme.text)
+
+                                Text(plan.subtitle)
+                                    .font(.subheadline)
+                                    .foregroundStyle(AetherTheme.mutedText)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 10) {
+                                    ProgressSummaryPill(title: "Score Goal", value: "\(plan.scoreTarget)")
+                                    ProgressSummaryPill(title: "Weekly Minutes", value: "\(plan.targetWorkoutMinutes)")
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Recommended Days")
+                                        .font(.headline)
+                                        .foregroundStyle(AetherTheme.text)
+
+                                    HStack(spacing: 8) {
+                                        ForEach(plan.recommendedDays) { day in
+                                            DayBubble(
+                                                title: day.shortTitle,
+                                                accessibilityTitle: day.rawValue,
+                                                isSelected: true
+                                            ) { }
+                                            .allowsHitTesting(false)
+                                        }
+                                    }
+                                }
+                            }
+                            .profilePanel()
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Suggested Sessions")
+                                    .font(.headline)
+                                    .foregroundStyle(AetherTheme.text)
+
+                                VStack(spacing: 10) {
+                                    ForEach(plan.templates) { template in
+                                        TemplatePill(template: template) { }
+                                            .allowsHitTesting(false)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                            .profilePanel()
+                        }
+
+                        Button {
+                            store.markPlanPreviewSeen()
+                        } label: {
+                            Text("See My Access")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AetherTheme.red)
+                    }
+                    .padding(24)
+                }
+            }
+        }
+    }
+}
+
+private struct PaywallView: View {
+    @Bindable var store: WorkoutStore
+
+    var body: some View {
+        ZStack {
+            AetherTheme.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                OnboardingHeaderBar(store: store)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Unlock your plan")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .foregroundStyle(AetherTheme.text)
+
+                            Text("Your personalized result is ready. Choose a Pro option for plans, analytics, streaks, reminders, and premium templates.")
+                                .font(.body)
+                                .foregroundStyle(AetherTheme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 24)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Choose your Pro access")
+                                .font(.headline)
+                                .foregroundStyle(AetherTheme.text)
+
+                            VStack(spacing: 10) {
+                                ForEach(ProPlanOption.allCases) { option in
+                                    Button {
+                                        store.selectedProPlan = option
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(option.rawValue)
+                                                    .font(.headline)
+                                                    .foregroundStyle(AetherTheme.text)
+                                                Text(option.headline)
+                                                    .font(.subheadline.weight(.semibold))
+                                                    .foregroundStyle(AetherTheme.text)
+                                                Text(option.detail)
+                                                    .font(.caption)
+                                                    .foregroundStyle(AetherTheme.mutedText)
+                                            }
+
+                                            Spacer()
+
+                                            Image(systemName: store.selectedProPlan == option ? "checkmark.circle.fill" : "circle")
+                                                .font(.title3)
+                                                .foregroundStyle(store.selectedProPlan == option ? AetherTheme.red : AetherTheme.mutedText)
+                                        }
+                                        .padding(14)
+                                        .background(store.selectedProPlan == option ? AetherTheme.redMuted : AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(store.selectedProPlan == option ? AetherTheme.red : AetherTheme.border, lineWidth: 1)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .profilePanel()
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Free version")
+                                .font(.headline)
+                                .foregroundStyle(AetherTheme.text)
+
+                            VStack(spacing: 12) {
+                                FreeFeatureRow(text: "Manual workout logging")
+                                FreeFeatureRow(text: "Workout history and weekly home view")
+                                FreeFeatureRow(text: "Apple Health metrics on the dashboard")
+                                FreeFeatureRow(text: "Multi-exercise session templates")
+                            }
+                        }
+                        .profilePanel()
+
+                        Button {
+                            store.unlockProAccess()
+                        } label: {
+                            Text(store.selectedProPlan.ctaTitle)
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AetherTheme.red)
+
+                        Button {
+                            store.continueWithFreeTier()
+                        } label: {
+                            Text("Keep Going with Free")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AetherTheme.text)
+                        .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        Text("Free keeps the core logging flow open. Pro adds advanced planning, progress analytics, streaks, and premium coaching tools.")
+                            .font(.footnote)
+                            .foregroundStyle(AetherTheme.mutedText)
+                    }
+                    .padding(24)
+                }
+            }
+        }
+    }
+}
+
+private struct PaywallFeatureRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.headline)
+                .foregroundStyle(AetherTheme.red)
+
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(AetherTheme.text)
+
+            Spacer()
+        }
+    }
+}
+
+private struct FreeFeatureRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "circle")
+                .font(.headline)
+                .foregroundStyle(AetherTheme.mutedText)
+
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(AetherTheme.text)
+
+            Spacer()
         }
     }
 }
@@ -219,6 +862,8 @@ private struct LoginView: View {
     @Bindable var store: WorkoutStore
     @State private var showingEmailSignIn = false
     @State private var displayName = ""
+    @State private var showAuthOptions = false
+    @FocusState private var isNameFieldFocused: Bool
 
     private var canContinue: Bool {
         !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -228,81 +873,108 @@ private struct LoginView: View {
         ZStack {
             AetherTheme.background.ignoresSafeArea()
 
-            VStack(spacing: 26) {
-                Spacer(minLength: 34)
+            VStack(spacing: 0) {
+                OnboardingHeaderBar(store: store)
 
-                VStack(spacing: 18) {
-                    ZStack {
-                        Circle()
-                            .fill(AetherTheme.redMuted)
-                            .frame(width: 96, height: 96)
-                        Image(systemName: "waveform.path.ecg")
-                            .font(.system(size: 40, weight: .semibold))
-                            .foregroundStyle(AetherTheme.red)
+                VStack(spacing: 26) {
+                    Spacer(minLength: 34)
+
+                    VStack(spacing: 18) {
+                        ZStack {
+                            Circle()
+                                .fill(AetherTheme.redMuted)
+                                .frame(width: 96, height: 96)
+                            Image(systemName: "waveform.path.ecg")
+                                .font(.system(size: 40, weight: .semibold))
+                                .foregroundStyle(AetherTheme.red)
+                        }
+
+                        VStack(spacing: 10) {
+                            Text("Aether")
+                                .font(.system(size: 46, weight: .bold, design: .rounded))
+                                .foregroundStyle(AetherTheme.text)
+
+                            Text("Sign in so your dashboard can feel personal.")
+                                .font(.title3)
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(AetherTheme.mutedText)
+                                .frame(maxWidth: 330)
+                        }
                     }
 
-                    VStack(spacing: 10) {
-                        Text("Aether")
-                            .font(.system(size: 46, weight: .bold, design: .rounded))
-                            .foregroundStyle(AetherTheme.text)
+                    TextField("Your name", text: $displayName)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(AetherTheme.text)
+                        .padding(16)
+                        .background(AetherTheme.panel, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(AetherTheme.border, lineWidth: 1)
+                        }
+                        .frame(maxWidth: 360)
+                        .focused($isNameFieldFocused)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.continue)
+                        #endif
 
-                        Text("Sign in so your dashboard can feel personal.")
-                            .font(.title3)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(AetherTheme.mutedText)
-                            .frame(maxWidth: 330)
-                    }
-                }
+                    Group {
+                        if showAuthOptions {
+                            VStack(spacing: 12) {
+                                appleSignInButton
 
-                TextField("Your name", text: $displayName)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(AetherTheme.text)
-                    .padding(16)
-                    .background(AetherTheme.panel, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(AetherTheme.border, lineWidth: 1)
+                                AuthButton(
+                                    title: "Continue with Google",
+                                    leadingText: "G",
+                                    foreground: .black,
+                                    background: .white
+                                ) {
+                                    store.completeOnboarding(provider: .google, displayName: displayName)
+                                }
+
+                                AuthButton(
+                                    title: "Continue with Email",
+                                    systemImage: "envelope.fill",
+                                    foreground: AetherTheme.text,
+                                    background: AetherTheme.elevated
+                                ) {
+                                    showingEmailSignIn = true
+                                }
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
                     .frame(maxWidth: 360)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.words)
-                    #endif
+                    .animation(.easeInOut(duration: 1.1), value: showAuthOptions)
 
-                Group {
-                    if canContinue {
-                        VStack(spacing: 12) {
-                            appleSignInButton
-
-                            AuthButton(
-                                title: "Continue with Google",
-                                leadingText: "G",
-                                foreground: .black,
-                                background: .white
-                            ) {
-                                store.completeOnboarding(provider: .google, displayName: displayName)
-                            }
-
-                            AuthButton(
-                                title: "Continue with Email",
-                                systemImage: "envelope.fill",
-                                foreground: AetherTheme.text,
-                                background: AetherTheme.elevated
-                            ) {
-                                showingEmailSignIn = true
-                            }
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
+                    Spacer(minLength: 30)
                 }
-                .frame(maxWidth: 360)
-                .animation(.easeInOut(duration: 0.55), value: canContinue)
-
-                Spacer(minLength: 30)
+                .padding(24)
             }
-            .padding(24)
         }
         .sheet(isPresented: $showingEmailSignIn) {
             EmailSignInSheet(store: store, displayName: displayName)
+        }
+        .onAppear {
+            if !store.userDisplayName.isEmpty {
+                displayName = store.userDisplayName
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                isNameFieldFocused = true
+            }
+        }
+        .task(id: canContinue) {
+            if canContinue {
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                guard canContinue else { return }
+                withAnimation(.easeInOut(duration: 1.25)) {
+                    showAuthOptions = true
+                }
+            } else {
+                withAnimation(.easeOut(duration: 0.28)) {
+                    showAuthOptions = false
+                }
+            }
         }
     }
 
@@ -449,77 +1121,103 @@ private struct EmailSignInSheet: View {
 private struct HealthConnectView: View {
     @Bindable var store: WorkoutStore
 
+    private var isAuthorized: Bool {
+        store.healthStatus == .authorized
+    }
+
     var body: some View {
         ZStack {
             AetherTheme.background.ignoresSafeArea()
 
-            VStack(spacing: 26) {
-                Spacer(minLength: 40)
+            VStack(spacing: 0) {
+                OnboardingHeaderBar(store: store)
 
-                VStack(spacing: 16) {
-                    Image(systemName: "heart.text.square.fill")
-                        .font(.system(size: 58, weight: .semibold))
-                        .foregroundStyle(AetherTheme.red)
-                        .frame(width: 110, height: 110)
-                        .background(AetherTheme.redMuted, in: Circle())
+                VStack(spacing: 26) {
+                    Spacer(minLength: 40)
 
-                    VStack(spacing: 10) {
-                        Text("Connect Apple Health")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(AetherTheme.text)
+                    VStack(spacing: 16) {
+                        Image(systemName: "heart.text.square.fill")
+                            .font(.system(size: 58, weight: .semibold))
+                            .foregroundStyle(AetherTheme.red)
+                            .frame(width: 110, height: 110)
+                            .background(AetherTheme.redMuted, in: Circle())
 
-                        Text("Aether uses Apple Health for calories, heart rate, steps, and activity metrics.")
-                            .font(.title3)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(AetherTheme.mutedText)
-                            .frame(maxWidth: 350)
+                        VStack(spacing: 10) {
+                            Text(isAuthorized ? "Apple Health Connected" : "Connect Apple Health")
+                                .font(.system(size: 36, weight: .bold, design: .rounded))
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(AetherTheme.text)
+
+                            Text("Aether uses Apple Health for calories, heart rate, steps, and activity metrics.")
+                                .font(.title3)
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(AetherTheme.mutedText)
+                                .frame(maxWidth: 350)
+                        }
                     }
-                }
 
-                VStack(spacing: 12) {
-                    Button {
-                        Task { await store.syncHealthWorkouts() }
-                    } label: {
-                        if store.isSyncing {
-                            ProgressView()
-                                .tint(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 54)
-                        } else {
-                            Label("Connect Apple Health", systemImage: "heart.fill")
+                    VStack(spacing: 12) {
+                        Button {
+                            if isAuthorized {
+                                store.markHealthPromptSeen()
+                            } else {
+                                Task { await store.syncHealthWorkouts() }
+                            }
+                        } label: {
+                            if store.isSyncing {
+                                ProgressView()
+                                    .tint(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 54)
+                            } else {
+                                Label(
+                                    isAuthorized ? "Continue to Aether" : "Connect Apple Health",
+                                    systemImage: isAuthorized ? "arrow.right.circle.fill" : "heart.fill"
+                                )
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 54)
+                            }
                         }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AetherTheme.red)
-                    .disabled(store.isSyncing || store.healthStatus == .unavailable)
+                        .buttonStyle(.borderedProminent)
+                        .tint(AetherTheme.red)
+                        .disabled(store.isSyncing || store.healthStatus == .unavailable)
 
-                    Button {
-                        store.markHealthPromptSeen()
-                    } label: {
-                        Text(store.healthStatus == .unavailable ? "Continue in Simulator" : "Not Now")
+                        Button {
+                            if isAuthorized {
+                                Task { await store.refreshFromHealth() }
+                            } else {
+                                store.markHealthPromptSeen()
+                            }
+                        } label: {
+                            Text(
+                                isAuthorized
+                                    ? "Sync Again"
+                                    : (store.healthStatus == .unavailable ? "Continue in Simulator" : "Not Now")
+                            )
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .frame(height: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AetherTheme.text)
+                        .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AetherTheme.text)
-                    .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .frame(maxWidth: 360)
+
+                    Text(store.healthSyncDetail)
+                        .font(.footnote)
+                        .foregroundStyle(AetherTheme.mutedText)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+
+                    Spacer(minLength: 34)
                 }
-                .frame(maxWidth: 360)
-
-                Text(store.healthStatus.detail)
-                    .font(.footnote)
-                    .foregroundStyle(AetherTheme.mutedText)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-
-                Spacer(minLength: 34)
+                .padding(24)
             }
-            .padding(24)
+        }
+        .task {
+            await store.bootstrapHealthStatus()
         }
     }
 }
@@ -624,9 +1322,6 @@ private struct HomeView: View {
                 .font(.system(size: 34, weight: .bold, design: .rounded))
                 .foregroundStyle(AetherTheme.text)
 
-            Text("Here is this week's logged training and Health metrics.")
-                .font(.subheadline)
-                .foregroundStyle(AetherTheme.mutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
@@ -638,15 +1333,11 @@ private struct HomeView: View {
                 Text("This Week")
                     .font(.title2.bold())
                     .foregroundStyle(AetherTheme.text)
-                Text("Aether logs with Apple Health metrics")
-                    .font(.subheadline)
-                    .foregroundStyle(AetherTheme.mutedText)
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
                 HomeMetric(title: "Workouts", value: "\(store.weeklyWorkouts.count)", unit: "sessions", systemImage: "figure.run")
                 HomeMetric(title: "Calories", value: store.energyValueText(forKilocalories: store.healthMetrics.activeEnergyKilocalories), unit: store.energyUnit.shortTitle, systemImage: "flame.fill")
-                HomeMetric(title: "Steps", value: store.healthMetrics.steps.formatted(.number.grouping(.automatic)), unit: "steps", systemImage: "shoeprints.fill")
                 HomeMetric(title: "Heart Rate", value: store.healthMetrics.heartRateText, unit: "avg bpm", systemImage: "heart.fill")
             }
         }
@@ -743,6 +1434,7 @@ private struct WorkoutWeekSection: View {
 private struct WorkoutTrackingView: View {
     @Bindable var store: WorkoutStore
     @State private var draft = WorkoutTrackingDraft()
+    @State private var currentExercise = WorkoutExercise(distanceKilometers: 0, loggedSets: [WorkoutSet()])
     @State private var hasSubmittedCurrentDraft = false
 
     var body: some View {
@@ -766,6 +1458,15 @@ private struct WorkoutTrackingView: View {
         .onChange(of: draft) { _, _ in
             hasSubmittedCurrentDraft = false
         }
+        .onChange(of: currentExercise) { _, _ in
+            hasSubmittedCurrentDraft = false
+        }
+        .onChange(of: draft.kind) { _, newKind in
+            currentExercise = defaultExerciseBuilder(for: newKind)
+        }
+        .onAppear {
+            currentExercise = defaultExerciseBuilder(for: draft.kind)
+        }
     }
 
     private var header: some View {
@@ -773,7 +1474,7 @@ private struct WorkoutTrackingView: View {
             Text("Workout Tracking")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(AetherTheme.text)
-            Text("Log the workout you performed with muscle groups, weight, and reps.")
+            Text("Log one exercise at a time, add it to your session, then finish the workout when you're done.")
                 .font(.subheadline)
                 .foregroundStyle(AetherTheme.mutedText)
         }
@@ -782,14 +1483,30 @@ private struct WorkoutTrackingView: View {
 
     private var workoutDetails: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("Workout Type", selection: $draft.kind) {
+            Menu {
                 ForEach(WorkoutKind.allCases) { kind in
-                    Label(kind.rawValue, systemImage: kind.symbolName).tag(kind)
+                    Button {
+                        draft.kind = kind
+                    } label: {
+                        Label(kind.rawValue, systemImage: kind.symbolName)
+                    }
                 }
+            } label: {
+                HStack(spacing: 10) {
+                    Label(draft.kind.rawValue, systemImage: draft.kind.symbolName)
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.text)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AetherTheme.mutedText)
+                }
+                .padding(14)
+                .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .pickerStyle(.menu)
-            .padding(14)
-            .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .accessibilityLabel("Workout Type")
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Day")
@@ -807,72 +1524,13 @@ private struct WorkoutTrackingView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Muscle Groups")
-                    .font(.headline)
-                    .foregroundStyle(AetherTheme.text)
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 8)], spacing: 8) {
-                    ForEach(MuscleGroup.allCases) { group in
-                        SelectableChip(
-                            title: group.rawValue,
-                            isSelected: draft.muscleGroups.contains(group)
-                        ) {
-                            draft.toggleMuscleGroup(group)
-                        }
-                    }
-                }
-            }
-
-            TextField("Workout performed", text: $draft.workoutName)
+            TextField("Workout name", text: $draft.workoutName)
                 .textFieldStyle(.plain)
                 .padding(14)
                 .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            TextField("Workout split", text: $draft.splitName)
-                .textFieldStyle(.plain)
-                .padding(14)
-                .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-            if draft.kind.tracksDistance {
-                TextField("Distance", value: $draft.distanceKilometers, format: .number.precision(.fractionLength(1)))
-                    .textFieldStyle(.plain)
-                    .padding(14)
-                    .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    #if os(iOS)
-                    .keyboardType(.decimalPad)
-                    #endif
-            } else {
-                HStack(spacing: 12) {
-                    DialPickerPanel(title: "Weight", value: "\(draft.weightPounds) lb") {
-                        Picker("Weight", selection: $draft.weightPounds) {
-                            ForEach(0...600, id: \.self) { pounds in
-                                Text("\(pounds) lb").tag(pounds)
-                            }
-                        }
-                        #if os(iOS)
-                        .pickerStyle(.wheel)
-                        #endif
-                    }
-
-                    DialPickerPanel(title: "Reps", value: "\(draft.reps)") {
-                        Picker("Reps", selection: $draft.reps) {
-                            ForEach(1...50, id: \.self) { reps in
-                                Text("\(reps)").tag(reps)
-                            }
-                        }
-                        #if os(iOS)
-                        .pickerStyle(.wheel)
-                        #endif
-                    }
-                }
-            }
-
-            TextField("Notes", text: $draft.notes, axis: .vertical)
-                .lineLimit(3...5)
-                .textFieldStyle(.plain)
-                .padding(14)
-                .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            currentExerciseComposerSection
+            sessionExercisesSection
         }
         .profilePanel()
     }
@@ -884,32 +1542,40 @@ private struct WorkoutTrackingView: View {
                     Text("Templates")
                         .font(.headline)
                         .foregroundStyle(AetherTheme.text)
-                    Text("Tap a saved session to fill the form.")
+                    Text("Use a saved session or save the one you're building.")
                         .font(.caption)
                         .foregroundStyle(AetherTheme.mutedText)
                 }
 
                 Spacer()
 
+                if !store.workoutTemplates.isEmpty {
+                    Menu {
+                        ForEach(store.workoutTemplates) { template in
+                            Button(template.name) {
+                                draft = template.draft(for: draft.day)
+                                currentExercise = defaultExerciseBuilder(for: draft.kind)
+                            }
+                        }
+                    } label: {
+                        Label("Use Template", systemImage: "square.stack.3d.up.fill")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+
                 Button {
                     store.saveTemplate(from: draft)
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.headline)
+                    Text("Save")
+                        .font(.subheadline.weight(.semibold))
                 }
                 .disabled(!draft.isSubmittable)
                 .accessibilityLabel("Save current workout as template")
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(store.workoutTemplates) { template in
-                        TemplatePill(template: template) {
-                            draft = template.draft(for: draft.day)
-                        }
-                    }
-                }
-            }
+            Text(store.workoutTemplates.isEmpty ? "No templates saved yet." : "\(store.workoutTemplates.count) saved template\(store.workoutTemplates.count == 1 ? "" : "s") ready.")
+                .font(.subheadline)
+                .foregroundStyle(AetherTheme.mutedText)
         }
         .profilePanel()
     }
@@ -922,7 +1588,7 @@ private struct WorkoutTrackingView: View {
                     hasSubmittedCurrentDraft = true
                 }
             } label: {
-                Label(hasSubmittedCurrentDraft ? "Workout Logged" : "Log Workout", systemImage: hasSubmittedCurrentDraft ? "checkmark.circle.fill" : "square.and.pencil")
+                Label(hasSubmittedCurrentDraft ? "Workout Logged" : "Finish Workout", systemImage: hasSubmittedCurrentDraft ? "checkmark.circle.fill" : "checkmark.seal.fill")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
@@ -931,13 +1597,247 @@ private struct WorkoutTrackingView: View {
             .tint(AetherTheme.red)
             .opacity(hasSubmittedCurrentDraft ? 0.45 : 1)
             .blur(radius: hasSubmittedCurrentDraft ? 0.8 : 0)
-            .disabled(hasSubmittedCurrentDraft || !draft.isSubmittable)
+            .disabled(hasSubmittedCurrentDraft || !draft.isSubmittable || currentExercise.isFilled(for: draft.kind))
 
-            Text(hasSubmittedCurrentDraft ? "Change any workout detail to enable the button again." : "Workouts logged here are saved in Aether only.")
+            Text(
+                hasSubmittedCurrentDraft
+                    ? "Change any session detail to enable the button again."
+                    : currentExercise.isFilled(for: draft.kind)
+                        ? "Add the current exercise to the session before finishing the workout."
+                        : "\(draft.filledExercises.count) exercise\(draft.filledExercises.count == 1 ? "" : "s") ready to log."
+            )
                 .font(.footnote)
                 .foregroundStyle(AetherTheme.mutedText)
         }
         .profilePanel()
+    }
+
+    private var currentExerciseComposerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Current Exercise")
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.text)
+                    Text("Log the sets you finish, then add the exercise to the session.")
+                        .font(.caption)
+                        .foregroundStyle(AetherTheme.mutedText)
+                }
+
+                Spacer()
+
+                if !draft.kind.tracksDistance {
+                    Button {
+                        addSetToCurrentExercise()
+                    } label: {
+                        Label("Add Set", systemImage: "plus")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+            }
+
+            TextField("Exercise name", text: $currentExercise.name)
+                .textFieldStyle(.plain)
+                .padding(14)
+                .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            if draft.kind.tracksDistance {
+                DialPickerPanel(
+                    title: "Distance",
+                    value: "\(currentExercise.distanceKilometers.formatted(.number.precision(.fractionLength(1)))) km"
+                ) {
+                    Picker("Distance", selection: $currentExercise.distanceKilometers) {
+                        ForEach(Array(stride(from: 0.5, through: 30, by: 0.5)), id: \.self) { distance in
+                            Text("\(distance.formatted(.number.precision(.fractionLength(1)))) km").tag(distance)
+                        }
+                    }
+                    #if os(iOS)
+                    .pickerStyle(.wheel)
+                    #endif
+                }
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(Array(currentExercise.loggedSets.enumerated()), id: \.element.id) { index, set in
+                        StrengthSetCard(
+                            setNumber: index + 1,
+                            set: Binding(
+                                get: { currentExercise.loggedSets[index] },
+                                set: { currentExercise.loggedSets[index] = $0 }
+                            ),
+                            canDelete: currentExercise.loggedSets.count > 1,
+                            onDelete: {
+                                currentExercise.loggedSets.remove(at: index)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Button {
+                addCurrentExerciseToSession()
+            } label: {
+                Text("Add Exercise to Session")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AetherTheme.red)
+            .disabled(!currentExercise.isFilled(for: draft.kind))
+        }
+    }
+
+    private var sessionExercisesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Workout Session")
+                    .font(.headline)
+                    .foregroundStyle(AetherTheme.text)
+                Text("Exercises already added to this workout.")
+                    .font(.caption)
+                    .foregroundStyle(AetherTheme.mutedText)
+            }
+
+            if draft.exercises.isEmpty {
+                Text("No exercises added yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(AetherTheme.mutedText)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(draft.exercises) { exercise in
+                        SessionExerciseRow(
+                            exercise: exercise,
+                            kind: draft.kind,
+                            onDelete: {
+                                draft.removeExercise(id: exercise.id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func defaultExerciseBuilder(for kind: WorkoutKind) -> WorkoutExercise {
+        WorkoutExercise(
+            name: "",
+            sets: kind.tracksDistance ? 1 : 1,
+            weightPounds: 45,
+            reps: kind.tracksDistance ? 0 : 8,
+            distanceKilometers: kind.tracksDistance ? 5 : 0,
+            notes: "",
+            loggedSets: kind.tracksDistance ? [] : [WorkoutSet()]
+        )
+    }
+
+    private func addSetToCurrentExercise() {
+        let lastSet = currentExercise.loggedSets.last ?? WorkoutSet()
+        currentExercise.loggedSets.append(
+            WorkoutSet(
+                reps: lastSet.reps,
+                weightPounds: lastSet.weightPounds
+            )
+        )
+    }
+
+    private func addCurrentExerciseToSession() {
+        guard currentExercise.isFilled(for: draft.kind) else { return }
+        draft.appendExercise(currentExercise)
+        currentExercise = defaultExerciseBuilder(for: draft.kind)
+    }
+}
+
+private struct SessionExerciseRow: View {
+    let exercise: WorkoutExercise
+    let kind: WorkoutKind
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: kind.symbolName)
+                    .font(.headline)
+                    .foregroundStyle(AetherTheme.red)
+                    .frame(width: 38, height: 38)
+                    .background(AetherTheme.redMuted, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(exercise.name)
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.text)
+                        .lineLimit(1)
+
+                    Text(exercise.summary(for: kind))
+                        .font(.subheadline)
+                        .foregroundStyle(AetherTheme.mutedText)
+                }
+
+                Spacer()
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AetherTheme.mutedText)
+                    .frame(width: 38, height: 38)
+                    .background(AetherTheme.elevated, in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct StrengthSetCard: View {
+    let setNumber: Int
+    @Binding var set: WorkoutSet
+    let canDelete: Bool
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Set \(setNumber)")
+                    .font(.headline)
+                    .foregroundStyle(AetherTheme.text)
+                Spacer()
+                if canDelete {
+                    Button(role: .destructive, action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 10) {
+                CompactWheelPicker(title: "Weight", value: "\(set.weightPounds) lb") {
+                    Picker("Weight", selection: $set.weightPounds) {
+                        ForEach(0...600, id: \.self) { pounds in
+                            Text("\(pounds) lb").tag(pounds)
+                        }
+                    }
+                    #if os(iOS)
+                    .pickerStyle(.wheel)
+                    #endif
+                }
+
+                CompactWheelPicker(title: "Reps", value: "\(set.reps)") {
+                    Picker("Reps", selection: $set.reps) {
+                        ForEach(1...50, id: \.self) { reps in
+                            Text("\(reps)").tag(reps)
+                        }
+                    }
+                    #if os(iOS)
+                    .pickerStyle(.wheel)
+                    #endif
+                }
+            }
+        }
+        .padding(14)
+        .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -969,24 +1869,41 @@ private struct TemplatePill: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: template.kind.symbolName)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AetherTheme.red)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(template.name)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: template.kind.symbolName)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AetherTheme.text)
-                        .lineLimit(1)
-                    Text(template.kind.tracksDistance ? "\(template.distanceKilometers.formatted(.number.precision(.fractionLength(1)))) km" : "\(template.weightPounds) lb x \(template.reps)")
-                        .font(.caption)
-                        .foregroundStyle(AetherTheme.mutedText)
+                        .foregroundStyle(AetherTheme.red)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(template.name)
+                            .font(.headline)
+                            .foregroundStyle(AetherTheme.text)
+                            .lineLimit(1)
+                        Text("\(template.exerciseCount) exercise\(template.exerciseCount == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundStyle(AetherTheme.mutedText)
+                    }
+
+                    Spacer()
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(template.previewExercises, id: \.id) { exercise in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("-")
+                                .foregroundStyle(AetherTheme.mutedText)
+                            Text("\(exercise.name) • \(exercise.summary(for: template.kind))")
+                                .font(.caption)
+                                .foregroundStyle(AetherTheme.mutedText)
+                                .multilineTextAlignment(.leading)
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 10)
-            .background(AetherTheme.elevated, in: Capsule())
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -1144,6 +2061,36 @@ private struct DialPickerPanel<Content: View>: View {
         .padding(12)
         .frame(maxWidth: .infinity)
         .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct CompactWheelPicker<Content: View>: View {
+    let title: String
+    let value: String
+    let content: Content
+
+    init(title: String, value: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.value = value
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(AetherTheme.mutedText)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AetherTheme.text)
+
+            content
+                .frame(height: 108)
+                .clipped()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(AetherTheme.panel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -1726,7 +2673,12 @@ private struct WorkoutSummaryRow: View {
                     .font(.subheadline)
                     .foregroundStyle(AetherTheme.mutedText)
 
-                if !workout.notes.isEmpty {
+                if !workout.exercises.isEmpty {
+                    Text(workout.exercises.prefix(3).map { "\($0.name) • \($0.summary(for: workout.kind))" }.joined(separator: "\n"))
+                        .font(.caption)
+                        .foregroundStyle(AetherTheme.mutedText)
+                        .lineLimit(3)
+                } else if !workout.notes.isEmpty {
                     Text(workout.notes)
                         .font(.caption)
                         .foregroundStyle(AetherTheme.mutedText)
@@ -1757,15 +2709,27 @@ private struct ProgressTabView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    progressHeader
-                    analyticsGrid
-                    prSection
-                    trendSection
-                    planningSection
+                if store.isProTier {
+                    VStack(alignment: .leading, spacing: 18) {
+                        progressHeader
+                        scoreHero
+                        scoreBreakdownSection
+                        analyticsGrid
+                        prSection
+                        trendSection
+                        reportCardSection
+                        planningSection
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                } else {
+                    VStack(alignment: .leading, spacing: 18) {
+                        progressHeader
+                        progressLockedCard
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
             }
             .background(AetherTheme.background.ignoresSafeArea())
             .navigationTitle("Progress")
@@ -1775,16 +2739,79 @@ private struct ProgressTabView: View {
         }
     }
 
+    private var progressLockedCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Progress analytics are part of Pro.")
+                .font(.headline)
+                .foregroundStyle(AetherTheme.text)
+
+            Text("Free keeps your logging flow open. Pro unlocks score tracking, report cards, streak analytics, and deeper weekly trends.")
+                .font(.subheadline)
+                .foregroundStyle(AetherTheme.mutedText)
+
+            Button {
+                store.accessTier = nil
+            } label: {
+                Text("View Pro Options")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AetherTheme.red)
+        }
+        .profilePanel()
+    }
+
     private var progressHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Progress")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(AetherTheme.text)
-            Text("Weekly training, streaks, PRs, and Health metrics.")
+            Text("Weekly training, streaks, PRs, score trends, and Health metrics.")
                 .font(.subheadline)
                 .foregroundStyle(AetherTheme.mutedText)
         }
         .padding(.top, 8)
+    }
+
+    private var scoreHero: some View {
+        HStack(spacing: 16) {
+            ScoreRing(score: store.aetherScore, grade: store.aetherScoreGrade)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Aether Score")
+                    .font(.headline)
+                    .foregroundStyle(AetherTheme.text)
+
+                Text(store.aetherScoreLabel)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(AetherTheme.text)
+
+                Text(store.reportHeadline)
+                    .font(.subheadline)
+                    .foregroundStyle(AetherTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .profilePanel()
+    }
+
+    private var scoreBreakdownSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Score Breakdown")
+                .font(.headline)
+                .foregroundStyle(AetherTheme.text)
+
+            VStack(spacing: 10) {
+                ForEach(store.aetherScoreBreakdown) { item in
+                    ScoreBreakdownRow(item: item)
+                }
+            }
+        }
+        .profilePanel()
     }
 
     private var analyticsGrid: some View {
@@ -1845,6 +2872,45 @@ private struct ProgressTabView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(AetherTheme.mutedText)
                     }
+                }
+            }
+        }
+        .profilePanel()
+    }
+
+    private var reportCardSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Weekly Report Card")
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.text)
+                    Text("Share your current training snapshot.")
+                        .font(.caption)
+                        .foregroundStyle(AetherTheme.mutedText)
+                }
+
+                Spacer()
+
+                ShareLink(item: store.reportCardShareText) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.text)
+                        .frame(width: 38, height: 38)
+                        .background(AetherTheme.elevated, in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(store.reportHeadline)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AetherTheme.text)
+
+                HStack(spacing: 10) {
+                    ProgressSummaryPill(title: "Sessions", value: "\(store.weeklyWorkouts.count)")
+                    ProgressSummaryPill(title: "Streak", value: "\(store.consistencyStreakDays)d")
+                    ProgressSummaryPill(title: "Goal", value: "\(Int((store.sessionGoalProgress * 100).rounded()))%")
                 }
             }
         }
@@ -1920,6 +2986,89 @@ private struct ProgressMetricCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassSurface(cornerRadius: 16)
+    }
+}
+
+private struct ScoreRing: View {
+    let score: Int
+    let grade: String
+
+    private var progress: Double {
+        min(max(Double(score) / 100, 0), 1)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(AetherTheme.elevated, lineWidth: 12)
+
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(
+                    AetherTheme.red,
+                    style: StrokeStyle(lineWidth: 12, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+
+            VStack(spacing: 2) {
+                Text("\(score)")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(AetherTheme.text)
+                Text(grade)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AetherTheme.mutedText)
+            }
+        }
+        .frame(width: 108, height: 108)
+    }
+}
+
+private struct ScoreBreakdownRow: View {
+    let item: ScoreBreakdownItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AetherTheme.text)
+                Spacer()
+                Text("\(item.value)/\(item.maxValue)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AetherTheme.mutedText)
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(AetherTheme.elevated)
+                    Capsule()
+                        .fill(AetherTheme.red)
+                        .frame(width: max(14, proxy.size.width * item.progress))
+                }
+            }
+            .frame(height: 10)
+        }
+    }
+}
+
+private struct ProgressSummaryPill: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(.headline)
+                .foregroundStyle(AetherTheme.text)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(AetherTheme.mutedText)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AetherTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
